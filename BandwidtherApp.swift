@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Darwin
 import Foundation
 
@@ -625,251 +626,375 @@ struct ProcessBandwidthRow: View {
 struct ContentView: View {
     @StateObject private var monitor = NetworkMonitor()
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
+    // MARK: - Left column: Per-Process Bandwidth
+    var leftColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionHeader(title: "Per-Process Bandwidth", icon: "cpu")
+                Spacer()
+                Text("\(monitor.processBandwidths.count) processes")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Text("Sort:")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                ForEach(ProcessSortKey.allCases, id: \.self) { key in
+                    SortButton(
+                        label: key.rawValue,
+                        key: key,
+                        currentKey: $monitor.processSortKey,
+                        ascending: $monitor.processSortAscending,
+                        action: { monitor.resortProcesses() }
+                    )
+                }
+            }
+
+            let maxRate = monitor.processBandwidths.map { $0.totalPerSec }.max() ?? 1.0
+
+            if monitor.processBandwidths.isEmpty {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Bandwidther")
-                            .font(.system(size: 20, weight: .bold))
-                        Text("All interfaces (via nettop)")
+                    Spacer()
+                    VStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Sampling network traffic...")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
+                    .padding(.vertical, 20)
                     Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        let total = monitor.connectionSummary.internetCount + monitor.connectionSummary.lanCount
-                        Text("\(total) connections")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                        HStack(spacing: 8) {
-                            HStack(spacing: 3) {
-                                Circle().fill(.blue).frame(width: 6, height: 6)
-                                Text("\(monitor.connectionSummary.internetCount) internet")
-                                    .font(.system(size: 11))
-                            }
-                            HStack(spacing: 3) {
-                                Circle().fill(.green).frame(width: 6, height: 6)
-                                Text("\(monitor.connectionSummary.lanCount) LAN")
-                                    .font(.system(size: 11))
-                            }
-                        }
-                        .foregroundColor(.secondary)
+                }
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(monitor.processBandwidths) { proc in
+                        ProcessBandwidthRow(proc: proc, maxRate: maxRate)
+                        Divider()
                     }
                 }
+            }
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.03))
+        .cornerRadius(8)
+    }
 
-                // Live rates
-                HStack(spacing: 10) {
-                    RateCardView(
-                        title: "DOWNLOAD",
-                        rate: formatBytesRate(monitor.currentRate.bytesInPerSec),
-                        icon: "arrow.down.circle.fill",
+    // MARK: - Right column: Overview + connections + destinations
+    var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bandwidther")
+                        .font(.system(size: 20, weight: .bold))
+                    Text("All interfaces (via nettop)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    let total = monitor.connectionSummary.internetCount + monitor.connectionSummary.lanCount
+                    Text("\(total) connections")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 3) {
+                            Circle().fill(.blue).frame(width: 6, height: 6)
+                            Text("\(monitor.connectionSummary.internetCount) internet")
+                                .font(.system(size: 11))
+                        }
+                        HStack(spacing: 3) {
+                            Circle().fill(.green).frame(width: 6, height: 6)
+                            Text("\(monitor.connectionSummary.lanCount) LAN")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .foregroundColor(.secondary)
+                }
+            }
+
+            // Live rates
+            HStack(spacing: 10) {
+                RateCardView(
+                    title: "DOWNLOAD",
+                    rate: formatBytesRate(monitor.currentRate.bytesInPerSec),
+                    icon: "arrow.down.circle.fill",
+                    color: .blue
+                )
+                RateCardView(
+                    title: "UPLOAD",
+                    rate: formatBytesRate(monitor.currentRate.bytesOutPerSec),
+                    icon: "arrow.up.circle.fill",
+                    color: .orange
+                )
+            }
+
+            // Sparkline graph
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader(title: "Bandwidth (last 60s)", icon: "chart.xyaxis.line")
+
+                ZStack(alignment: .topTrailing) {
+                    SparklineView(
+                        data: monitor.rateHistory.map { $0.bytesInPerSec },
                         color: .blue
                     )
-                    RateCardView(
-                        title: "UPLOAD",
-                        rate: formatBytesRate(monitor.currentRate.bytesOutPerSec),
-                        icon: "arrow.up.circle.fill",
+
+                    SparklineView(
+                        data: monitor.rateHistory.map { $0.bytesOutPerSec },
                         color: .orange
                     )
-                }
 
-                // Sparkline graph
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Bandwidth (last 60s)", icon: "chart.xyaxis.line")
-
-                    ZStack(alignment: .topTrailing) {
-                        SparklineView(
-                            data: monitor.rateHistory.map { $0.bytesInPerSec },
-                            color: .blue
-                        )
-
-                        SparklineView(
-                            data: monitor.rateHistory.map { $0.bytesOutPerSec },
-                            color: .orange
-                        )
-
-                        VStack(alignment: .trailing, spacing: 2) {
-                            HStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: 1).fill(.blue).frame(width: 12, height: 2)
-                                Text("In").font(.system(size: 9)).foregroundColor(.secondary)
-                            }
-                            HStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: 1).fill(.orange).frame(width: 12, height: 2)
-                                Text("Out").font(.system(size: 9)).foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(4)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(4)
-                    }
-                    .frame(height: 80)
-                    .padding(8)
-                    .background(Color.primary.opacity(0.03))
-                    .cornerRadius(8)
-                }
-
-                // Per-Process Bandwidth
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        SectionHeader(title: "Per-Process Bandwidth", icon: "cpu")
-                        Spacer()
-                        Text("\(monitor.processBandwidths.count) processes")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-
-                    // Sort controls
-                    HStack(spacing: 12) {
-                        Text("Sort:")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                        ForEach(ProcessSortKey.allCases, id: \.self) { key in
-                            SortButton(
-                                label: key.rawValue,
-                                key: key,
-                                currentKey: $monitor.processSortKey,
-                                ascending: $monitor.processSortAscending,
-                                action: { monitor.resortProcesses() }
-                            )
-                        }
-                    }
-
-                    let maxRate = monitor.processBandwidths.map { $0.totalPerSec }.max() ?? 1.0
-
-                    if monitor.processBandwidths.isEmpty {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 4) {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                Text("Sampling network traffic...")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.vertical, 20)
-                            Spacer()
-                        }
-                    } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(monitor.processBandwidths) { proc in
-                                ProcessBandwidthRow(proc: proc, maxRate: maxRate)
-                                Divider()
-                            }
-                        }
-                    }
-                }
-                .padding(10)
-                .background(Color.primary.opacity(0.03))
-                .cornerRadius(8)
-
-                // Totals since boot
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Cumulative Total", icon: "clock.arrow.circlepath")
-                    HStack {
+                    VStack(alignment: .trailing, spacing: 2) {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10))
-                                .foregroundColor(.blue)
-                            Text(formatTotalBytes(monitor.totalBytesIn))
-                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            RoundedRectangle(cornerRadius: 1).fill(.blue).frame(width: 12, height: 2)
+                            Text("In").font(.system(size: 9)).foregroundColor(.secondary)
                         }
-                        Spacer()
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 10))
-                                .foregroundColor(.orange)
-                            Text(formatTotalBytes(monitor.totalBytesOut))
-                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            RoundedRectangle(cornerRadius: 1).fill(.orange).frame(width: 12, height: 2)
+                            Text("Out").font(.system(size: 9)).foregroundColor(.secondary)
                         }
                     }
-                    .padding(8)
-                    .background(Color.primary.opacity(0.03))
-                    .cornerRadius(8)
+                    .padding(4)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(4)
                 }
-
-                // Traffic breakdown
-                HStack(alignment: .top, spacing: 12) {
-                    // Internet
-                    VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader(title: "Internet", icon: "globe")
-                        if monitor.connectionSummary.internetProcesses.isEmpty {
-                            Text("No connections")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 4)
-                        } else {
-                            let sorted = monitor.connectionSummary.internetProcesses.sorted { $0.value > $1.value }
-                            ForEach(sorted, id: \.key) { proc, count in
-                                ProcessRow(name: proc, count: count, color: .blue)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.blue.opacity(0.04))
-                    .cornerRadius(8)
-
-                    // LAN
-                    VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader(title: "LAN / Local", icon: "network")
-                        if monitor.connectionSummary.lanProcesses.isEmpty {
-                            Text("No connections")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 4)
-                        } else {
-                            let sorted = monitor.connectionSummary.lanProcesses.sorted { $0.value > $1.value }
-                            ForEach(sorted, id: \.key) { proc, count in
-                                ProcessRow(name: proc, count: count, color: .green)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.green.opacity(0.04))
-                    .cornerRadius(8)
-                }
-
-                // Destinations
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Internet Destinations", icon: "mappin.and.ellipse")
-
-                    let dests = Array(Set(monitor.connectionSummary.internetDestinations)).sorted().prefix(20)
-                    if dests.isEmpty {
-                        Text("None")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 4) {
-                            ForEach(Array(dests), id: \.self) { dest in
-                                let ip = String(dest.prefix(while: { $0 != ":" }))
-                                let port = String(dest.drop(while: { $0 != ":" }).dropFirst())
-                                let hostname = monitor.dnsCache.hostname(for: ip)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    if let hostname = hostname {
-                                        Text("\(hostname):\(port)")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(.primary)
-                                            .lineLimit(1)
-                                    }
-                                    Text(dest)
-                                        .font(.system(size: hostname != nil ? 10 : 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(10)
+                .frame(height: 80)
+                .padding(8)
                 .background(Color.primary.opacity(0.03))
                 .cornerRadius(8)
             }
-            .padding(16)
+
+            // Cumulative total
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader(title: "Cumulative Total", icon: "clock.arrow.circlepath")
+                HStack {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 10))
+                            .foregroundColor(.blue)
+                        Text(formatTotalBytes(monitor.totalBytesIn))
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    }
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                        Text(formatTotalBytes(monitor.totalBytesOut))
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    }
+                }
+                .padding(8)
+                .background(Color.primary.opacity(0.03))
+                .cornerRadius(8)
+            }
+
+            // Traffic breakdown
+            HStack(alignment: .top, spacing: 12) {
+                // Internet
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader(title: "Internet", icon: "globe")
+                    if monitor.connectionSummary.internetProcesses.isEmpty {
+                        Text("No connections")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        let sorted = monitor.connectionSummary.internetProcesses.sorted { $0.value > $1.value }
+                        ForEach(sorted, id: \.key) { proc, count in
+                            ProcessRow(name: proc, count: count, color: .blue)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.blue.opacity(0.04))
+                .cornerRadius(8)
+
+                // LAN
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader(title: "LAN / Local", icon: "network")
+                    if monitor.connectionSummary.lanProcesses.isEmpty {
+                        Text("No connections")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        let sorted = monitor.connectionSummary.lanProcesses.sorted { $0.value > $1.value }
+                        ForEach(sorted, id: \.key) { proc, count in
+                            ProcessRow(name: proc, count: count, color: .green)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.green.opacity(0.04))
+                .cornerRadius(8)
+            }
+
+            // Destinations
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader(title: "Internet Destinations", icon: "mappin.and.ellipse")
+
+                let dests = Array(Set(monitor.connectionSummary.internetDestinations)).sorted().prefix(20)
+                if dests.isEmpty {
+                    Text("None")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(dests), id: \.self) { dest in
+                            let ip = String(dest.prefix(while: { $0 != ":" }))
+                            let port = String(dest.drop(while: { $0 != ":" }).dropFirst())
+                            let hostname = monitor.dnsCache.hostname(for: ip)
+                            VStack(alignment: .leading, spacing: 1) {
+                                if let hostname = hostname {
+                                    Text("\(hostname):\(port)")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                }
+                                Text(dest)
+                                    .font(.system(size: hostname != nil ? 10 : 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.primary.opacity(0.03))
+            .cornerRadius(8)
         }
-        .frame(width: 520, height: 800)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Left: overview panels (scrollable independently)
+            ScrollView {
+                rightColumn.padding(16)
+            }
+            .frame(minWidth: 440)
+
+            Divider()
+
+            // Right: per-process (scrollable independently)
+            ScrollView {
+                leftColumn.padding(16)
+            }
+            .frame(width: 420)
+        }
+        .frame(width: 900, height: 700)
+    }
+}
+
+// NSHostingController wrapper needed for popover
+class ContentHostingController: NSHostingController<ContentView> {
+    init() {
+        super.init(rootView: ContentView())
+    }
+    @objc required dynamic init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+// MARK: - Menu Bar Icon
+
+struct MenuBarIconView: View {
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+            let mid = h * 0.5
+
+            // Up arrow (upload) - left side
+            let upArrow = Path { p in
+                p.move(to: CGPoint(x: w * 0.2, y: mid - 1))
+                p.addLine(to: CGPoint(x: w * 0.3, y: h * 0.15))
+                p.addLine(to: CGPoint(x: w * 0.4, y: mid - 1))
+            }
+            context.stroke(upArrow, with: .foreground, lineWidth: 1.5)
+            // Stem
+            let upStem = Path { p in
+                p.move(to: CGPoint(x: w * 0.3, y: h * 0.2))
+                p.addLine(to: CGPoint(x: w * 0.3, y: h * 0.75))
+            }
+            context.stroke(upStem, with: .foreground, lineWidth: 1.5)
+
+            // Down arrow (download) - right side
+            let downArrow = Path { p in
+                p.move(to: CGPoint(x: w * 0.6, y: mid + 1))
+                p.addLine(to: CGPoint(x: w * 0.7, y: h * 0.85))
+                p.addLine(to: CGPoint(x: w * 0.8, y: mid + 1))
+            }
+            context.stroke(downArrow, with: .foreground, lineWidth: 1.5)
+            // Stem
+            let downStem = Path { p in
+                p.move(to: CGPoint(x: w * 0.7, y: h * 0.25))
+                p.addLine(to: CGPoint(x: w * 0.7, y: h * 0.8))
+            }
+            context.stroke(downStem, with: .foreground, lineWidth: 1.5)
+        }
+        .frame(width: 18, height: 18)
+    }
+}
+
+// MARK: - App Delegate for Menu Bar
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    var statusItem: NSStatusItem!
+    var popover: NSPopover!
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hide from Dock
+        NSApp.setActivationPolicy(.accessory)
+
+        // Create the popover with our content
+        let popover = NSPopover()
+        popover.contentSize = NSSize(width: 900, height: 750)
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: ContentView())
+        self.popover = popover
+
+        // Create status bar item
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = statusItem.button {
+            // Use the SwiftUI icon rendered to an NSImage
+            let iconView = NSHostingView(rootView: MenuBarIconView())
+            iconView.frame = NSRect(x: 0, y: 0, width: 18, height: 18)
+
+            let rep = iconView.bitmapImageRepForCachingDisplay(in: iconView.bounds)!
+            iconView.cacheDisplay(in: iconView.bounds, to: rep)
+
+            let image = NSImage(size: NSSize(width: 18, height: 18))
+            image.addRepresentation(rep)
+            image.isTemplate = true  // Adapts to light/dark menu bar
+
+            button.image = image
+            button.action = #selector(togglePopover)
+            button.target = self
+        }
+
+        // Close any default windows
+        for window in NSApp.windows {
+            window.close()
+        }
+    }
+
+    @objc func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            // Ensure popover gets focus
+            NSApp.activate(ignoringOtherApps: true)
+            popover.contentViewController?.view.window?.makeKey()
+        }
     }
 }
 
@@ -877,10 +1002,11 @@ struct ContentView: View {
 
 @main
 struct BandwidtherApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            EmptyView()
         }
-        .windowResizability(.contentSize)
     }
 }
