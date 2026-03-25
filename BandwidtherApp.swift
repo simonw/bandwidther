@@ -888,6 +888,7 @@ struct ContentView: View {
             .frame(width: 420)
         }
         .frame(width: 900, height: 700)
+        .background(.background)
     }
 }
 
@@ -949,8 +950,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide from Dock
-        NSApp.setActivationPolicy(.accessory)
+        // Create status bar item first, before changing activation policy
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: "Bandwidther")
+            button.action = #selector(togglePopover)
+            button.target = self
+        }
 
         // Create the popover with our content
         let popover = NSPopover()
@@ -959,30 +966,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = NSHostingController(rootView: ContentView())
         self.popover = popover
 
-        // Create status bar item
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-
-        if let button = statusItem.button {
-            // Use the SwiftUI icon rendered to an NSImage
-            let iconView = NSHostingView(rootView: MenuBarIconView())
-            iconView.frame = NSRect(x: 0, y: 0, width: 18, height: 18)
-
-            let rep = iconView.bitmapImageRepForCachingDisplay(in: iconView.bounds)!
-            iconView.cacheDisplay(in: iconView.bounds, to: rep)
-
-            let image = NSImage(size: NSSize(width: 18, height: 18))
-            image.addRepresentation(rep)
-            image.isTemplate = true  // Adapts to light/dark menu bar
-
-            button.image = image
-            button.action = #selector(togglePopover)
-            button.target = self
-        }
-
-        // Close any default windows
-        for window in NSApp.windows {
-            window.close()
-        }
+        // Hide from Dock
+        NSApp.setActivationPolicy(.accessory)
     }
 
     @objc func togglePopover() {
@@ -991,7 +976,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            // Ensure popover gets focus
             NSApp.activate(ignoringOtherApps: true)
             popover.contentViewController?.view.window?.makeKey()
         }
