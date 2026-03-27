@@ -39,4 +39,12 @@ swiftc -parse-as-library -framework SwiftUI -framework AppKit -o Bandwidther Ban
 ./Bandwidther
 ```
 
+To run in the background:
+
+```bash
+nohup ./Bandwidther >/dev/null 2>&1 &
+```
+
+Can be quit by right/CTRL clicking the menu bar icon and choosing "Quit", or CMD+Q when the UI is visible.
+
 Requires macOS and Xcode command line tools (`xcode-select --install`).
